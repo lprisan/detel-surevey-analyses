@@ -1,0 +1,72 @@
+---
+title: "Supervision practices"
+author: "Luis P. Prieto (TLU)"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      warning = FALSE,
+                      message = FALSE)
+
+library(tidyverse)
+library(ggpubr)
+
+# We load the data
+data <- read.csv("./survey-first-35-responses.csv",
+                 stringsAsFactors = F,
+                 fileEncoding = "UTF-8-BOM")
+
+supdata <- data %>% select(c(1,8,387:466))
+
+# TODO: Do some cleanup and tidying
+names(supdata)[1:6] <- c("ID","Participant.type",
+                    "Satisf.Master","Satisf.PhD.ongoing",
+                    "Satisf.PhD", "Satisf.Master.ongoing")
+# TODO: add more column names
+
+supdata <- supdata %>%
+  mutate(Participant.type=as.factor(Participant.type))
+levels(supdata$Participant.type) <- c("PhD.student", "Master", "Doctor") # TODO: add the fourth category, which has no people yet!
+if(is.logical(supdata$Satisf.Master.ongoing)){
+  supdata$Satisf.Master.ongoing <- as.character(supdata$Satisf.Master.ongoing)
+}
+
+supdata <- supdata %>% 
+  mutate_if(is.character, list(~na_if(.,""))) %>%
+  mutate(Satisfaction.Master = coalesce(Satisf.Master,Satisf.Master.ongoing),
+                              Satisfaction.PhD=coalesce(Satisf.PhD.ongoing,
+                    Satisf.PhD)) %>% select(-contains("Satisf.")) %>%
+  mutate(Satisfaction.PhD=as.numeric(recode(Satisfaction.PhD,
+                                 `Very satisfied`="2",
+                                 `Satisfied`="1",
+                                 `Neither satisfied nor dissatisfied`="0",
+                                 `Dissatisfied`="-1",
+                                 `Very dissatisfied`="-2")),
+         Satisfaction.Master=as.numeric(recode(Satisfaction.Master,
+                                 `Very satisfied`="2",
+                                 `Satisfied`="1",
+                                 `Neither satisfied nor dissatisfied`="0",
+                                 `Dissatisfied`="-1",
+                                 `Very dissatisfied`="-2")))
+
+# TODO: Do similar things with the other questions about supervision practices
+```
+
+## Initial data exploration
+
+
+```{r explor}
+# How many people of each type?
+summary(supdata$Participant.type)
+
+gghistogram(supdata, x="Satisfaction.Master", bins=5, fill="grey")
+
+gghistogram(supdata, x="Satisfaction.PhD", bins=5, fill="grey")
+
+ggboxplot(supdata, x="Participant.type", y="Satisfaction.Master")
+
+ggboxplot(supdata, x="Participant.type", y="Satisfaction.PhD")
+
+```
