@@ -1,5 +1,5 @@
 ---
-title: "Supervision practices"
+title: "Supervision practices analysis"
 author: "Luis P. Prieto (TLU)"
 date: "`r Sys.Date()`"
 output: html_document
@@ -20,11 +20,82 @@ data <- read.csv("./survey-first-35-responses.csv",
 
 supdata <- data %>% select(c(1,8,387:466))
 
+questnames <- names(supdata) # We store the real names/question text, just in case it's useful later
+
 # TODO: Do some cleanup and tidying
-names(supdata)[1:6] <- c("ID","Participant.type",
+shortnames <- c("ID","Participant.type",
                     "Satisf.Master","Satisf.PhD.ongoing",
-                    "Satisf.PhD", "Satisf.Master.ongoing")
-# TODO: add more column names
+                    "Satisf.PhD", "Satisf.Master.ongoing",
+                    "Exp.SingleSupervision","Exp.CoSupervision",
+                    "Exp.TeamSupervision","Exp.ResrchByExample",
+                    "Exp.GrantWritByExample",
+                    "Exp.EthicsWritByExample",
+                    "Exp.LitRevwByExample",
+                    "Exp.SciWritByExample",
+                    "Exp.DataAnalysByExample",
+                    "Exp.PrjMgmtByExample",
+                    "Exp.DoctoralWritGrp",
+                    "Exp.SupervContracts",
+                    "Exp.DiscussOverallPhD",
+                    "Exp.ExternalExperts",
+                    "Exp.SciCommIntegration",
+                    "Exp.CriticalThinking",
+                    "Exp.EmotionalSupport",
+                    "Exp.AutonomyIndependent",
+                    "Exp.MaterialSupport",
+                    "Usef.Mast.SingleSupervision","Usef.Mast.CoSupervision",
+                    "Usef.Mast.TeamSupervision","Usef.Mast.ResrchByExample",
+                    "Usef.Mast.GrantWritByExample",
+                    "Usef.Mast.EthicsWritByExample",
+                    "Usef.Mast.LitRevwByExample",
+                    "Usef.Mast.SciWritByExample",
+                    "Usef.Mast.DataAnalysByExample",
+                    "Usef.Mast.PrjMgmtByExample",
+                    "Usef.Mast.DoctoralWritGrp",
+                    "Usef.Mast.SupervContracts",
+                    "Usef.Mast.DiscussOverallPhD",
+                    "Usef.Mast.ExternalExperts",
+                    "Usef.Mast.SciCommIntegration",
+                    "Usef.Mast.CriticalThinking",
+                    "Usef.Mast.EmotionalSupport",
+                    "Usef.Mast.AutonomyIndependent",
+                    "Usef.Mast.MaterialSupport",
+                    "Usef.PhDong.SingleSupervision","Usef.PhDong.CoSupervision",
+                    "Usef.PhDong.TeamSupervision","Usef.PhDong.ResrchByExample",
+                    "Usef.PhDong.GrantWritByExample",
+                    "Usef.PhDong.EthicsWritByExample",
+                    "Usef.PhDong.LitRevwByExample",
+                    "Usef.PhDong.SciWritByExample",
+                    "Usef.PhDong.DataAnalysByExample",
+                    "Usef.PhDong.PrjMgmtByExample",
+                    "Usef.PhDong.DoctoralWritGrp",
+                    "Usef.PhDong.SupervContracts",
+                    "Usef.PhDong.DiscussOverallPhD",
+                    "Usef.PhDong.ExternalExperts",
+                    "Usef.PhDong.SciCommIntegration",
+                    "Usef.PhDong.CriticalThinking",
+                    "Usef.PhDong.EmotionalSupport",
+                    "Usef.PhDong.AutonomyIndependent",
+                    "Usef.PhDong.MaterialSupport",
+                    "Usef.PhD.SingleSupervision","Usef.PhD.CoSupervision",
+                    "Usef.PhD.TeamSupervision","Usef.PhD.ResrchByExample",
+                    "Usef.PhD.GrantWritByExample",
+                    "Usef.PhD.EthicsWritByExample",
+                    "Usef.PhD.LitRevwByExample",
+                    "Usef.PhD.SciWritByExample",
+                    "Usef.PhD.DataAnalysByExample",
+                    "Usef.PhD.PrjMgmtByExample",
+                    "Usef.PhD.DoctoralWritGrp",
+                    "Usef.PhD.SupervContracts",
+                    "Usef.PhD.DiscussOverallPhD",
+                    "Usef.PhD.ExternalExperts",
+                    "Usef.PhD.SciCommIntegration",
+                    "Usef.PhD.CriticalThinking",
+                    "Usef.PhD.EmotionalSupport",
+                    "Usef.PhD.AutonomyIndependent",
+                    "Usef.PhD.MaterialSupport"
+                    )
+names(supdata) <- shortnames
 
 supdata <- supdata %>%
   mutate(Participant.type=as.factor(Participant.type))
@@ -51,7 +122,45 @@ supdata <- supdata %>%
                                  `Dissatisfied`="-1",
                                  `Very dissatisfied`="-2")))
 
-# TODO: Do similar things with the other questions about supervision practices
+spractices <- c("SingleSupervision","CoSupervision",
+                    "TeamSupervision","ResrchByExample",
+                    "GrantWritByExample",
+                    "EthicsWritByExample",
+                    "LitRevwByExample",
+                    "SciWritByExample",
+                    "DataAnalysByExample",
+                    "PrjMgmtByExample",
+                    "DoctoralWritGrp",
+                    "SupervContracts",
+                    "DiscussOverallPhD",
+                    "ExternalExperts",
+                    "SciCommIntegration",
+                    "CriticalThinking",
+                    "EmotionalSupport",
+                    "AutonomyIndependent",
+                    "MaterialSupport")
+
+cleansupdata <- supdata
+for(sp in spractices){
+  s <- cleansupdata %>% select(!starts_with("Exp.") & ends_with(sp))
+  s[,paste0("Useful.",sp)] <- coalesce(s[,1],s[,2],s[,3])
+  s <- s %>% select(starts_with("Useful."))
+  s[,1] <- as.numeric(recode(s[,1],
+                                 `Extremely useful`="2",
+                                 `Somewhat useful`="1",
+                                 `Neither useful nor useless`="0",
+                                 `Somewhat useless`="-1",
+                                 `Extremely useless`="-2"))
+  cleansupdata <- cleansupdata %>% select(-(!starts_with("Exp.") & ends_with(sp))) %>%
+    cbind(s)
+}
+
+for(sp in spractices){
+  cn <- paste0("Exp.",sp)
+  cleansupdata[,cn] <- ifelse(cleansupdata[,cn]=="Yes",TRUE,FALSE)
+}
+
+supdata <- cleansupdata
 ```
 
 ## Initial data exploration
@@ -69,4 +178,81 @@ ggboxplot(supdata, x="Participant.type", y="Satisfaction.Master")
 
 ggboxplot(supdata, x="Participant.type", y="Satisfaction.PhD")
 
+# See correlations in the whole dataset
+# library("corrgram")
+# supdata %>% select(-ID, -Participant.type) %>%
+#   corrgram(lower.panel=corrgram::panel.ellipse,
+#          upper.panel=panel.cor,
+#          diag.panel=panel.density)
+
+# library(GGally)
+# supdata %>% select(-ID, -Participant.type) %>%
+#   GGally::ggpairs()
+
 ```
+
+
+## Most common practices
+
+```{r}
+
+ss <- supdata %>% select(starts_with("Exp.")) %>% colSums() %>% as.data.frame()
+ss[,2] <- rownames(ss)
+names(ss) <- c("Nr.appearances","Practice")
+ggbarplot(ss, x = "Practice", y = "Nr.appearances",
+          fill="steelblue",
+          palette = "jco",            # jco journal color palett. see ?ggpar
+          sort.val = "desc",          # Sort the value in dscending order
+          x.text.angle = 90           # Rotate vertically x axis texts
+          )
+
+```
+
+
+## Most useful practices
+
+```{r}
+
+su <- supdata %>% select(starts_with("Useful.")) %>% 
+  gather
+# %>% 
+#   summarise_all(list(mean = mean, sd = sd), na.rm = TRUE)
+ggboxplot(su, x = "key", y = "value",
+          fill="key",
+          add="mean",
+          x.text.angle = 90           # Rotate vertically x axis texts
+          ) + 
+  ggplot2::theme(legend.position="none")
+
+```
+
+## Crossing both? (scatterplot)
+
+```{r}
+
+su2 <- supdata %>% select(starts_with("Useful.")) %>% 
+  colMeans(na.rm = T) %>% as.data.frame()
+su2[,2] <- rownames(su2)
+names(su2) <- c("Avg.Usefulness","Practice")
+su2[,"Practice"] <- sub("Useful.","", su2[,"Practice"])
+
+ss[,"Practice"] <- sub("Exp.","", ss[,"Practice"])
+
+
+cross <- ss %>% full_join(su2, by="Practice")
+
+ggscatter(cross, x="Nr.appearances", y="Avg.Usefulness",
+          label = "Practice", repel = T) + ggplot2::ylim(-2,2)
+
+```
+
+So, we may want to emphasize the practice on the top-left (or those in the top, generally)...
+
+## Clusters of practice experiences (vs. overall satisfaction)
+
+TODO
+
+## Analyses per segment (e.g., PhD students vs. Doctors)
+
+TODO
+
