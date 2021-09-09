@@ -219,15 +219,18 @@ Seems like there is a big factor (find things challenging in general), then a se
 
 See http://www.sthda.com/english/articles/31-principal-component-methods-in-r-practical-guide/122-multidimensional-scaling-essentials-algorithms-and-r-code/
 
+PROBLEM: MDS does not seem to be reproducible! not even setting random seeds!
+
 OPtion 1: making sense of the variables (MDS of correlations)
 
 ```{r}
 
 dmds <- clean %>% 
-  select(Work.life.balance:Professional.ethics) %>%
+  select(id, Work.life.balance:Professional.ethics) %>%
   na.omit
 
-res.cor <- cor(dmds, method = "kendall")
+res.cor <- cor(dmds %>% select(-id), method = "kendall")
+set.seed(1)
 mds.cor <- (1 - res.cor) %>%
   cmdscale() %>%
   as_tibble()
@@ -237,11 +240,12 @@ ggscatter(mds.cor, x = "Dim.1", y = "Dim.2",
           label = colnames(res.cor),
           repel = TRUE)
 ```
+
 Option 2: Making sense of participants (for later clustering)
 
 ```{r}
-
-mds <- dmds %>%
+set.seed(1)
+mds <- dmds %>% select(-id) %>%
   dist() %>%          
   cmdscale() %>%
   as_tibble()
@@ -271,20 +275,37 @@ ggscatter(mds, x = "Dim.1", y = "Dim.2",
 
 # Plotting the clusters
 options(digits = 2)  
-dmds %>% gather(variable, value, -clust) %>%
+dmds %>% select(-id) %>% gather(variable, value, -clust) %>%
   ggboxplot(x="clust", y="value", fill="variable")+
   stat_summary(fun="mean")
 
-dmds %>% group_by(clust) %>% summarise_all(mean)
+dmds %>% select(-id) %>% group_by(clust) %>% summarise_all(mean)
 
 ```
+
 In this case, the clusters are:
 
-1. Everything is relatively easy (especially supervision and info access). Project management, Worklife balance and Psychological are still the most challenging comparatively (average)
-2. Average challenges. Project management and psychological are considered less challenging, professional ethics more challenging (followed by supervision)
-3. Everything is challenging. Psychological and worklife balance are especially challenging (followed by supervision). Information access and ethics are less challenging.
-4. Average challenges. Psychological and Worklife balance are more challenging. Information access is less challenging (followed by supervision).
-5. Average challenges, more differences across kinds of challenges: Worklife balance is most challenging, followed by Financial, Project management and Psychological. On the other hand, Info access, professional ethics and supervision are less challenging.
+1. Average challenges. Psychological, Worklife.balance are considered less challenging, professional ethics more challenging (followed by supervision)
+2. Everything is relatively easy (especially supervision and info access). Project management, Worklife balance and Psychological are still the most challenging comparatively (average)
+3. Everything is challenging. Psychological and worklife balance are especially challenging (followed by supervision and project management). Information access and ethics are less challenging.
+4. Average challenges. Worklife.balance, training, ethics (and psychological) are more challenging. Information access is less challenging (followed by administrative and financial).
+5. Average challenges, more differences across kinds of challenges: Worklife balance is most challenging, followed by Project management and Psychological. On the other hand, Info access, professional ethics and supervision are less challenging.
+
+Are clusters related with whether a respondent had finished the PhD?
+
+```{r}
+
+typ.clust <- dmds %>% left_join(clean %>% select(id, Type), by="id")
+
+tcl <- table(typ.clust$clust, typ.clust$Type)
+tcl
+chisq.test(tcl)
+
+```
+
+... and the clusters seem independent from type of respondent.
+
+
 
 ## Cluster analysis (K-means)
 
@@ -399,6 +420,20 @@ Initial cluster interpretation:
 5. Technical, training as mildly challenging
 
 These could be related with some of the profiles of PhD students found in De Clercq, M., Frenay, M., Azzi, A., Klein, O., & Galand, B. (2021). All You Need is Self-Determination: Investigation of PhD Students’ Motivation Profiles and Their Impact on the Doctoral Completion Process. *International Journal of Doctoral Studies, 16*, 189-209.
+
+Are thes kmeans clusters related with whether a respondent had finished the PhD?
+
+```{r}
+
+typ.clust <- cleanclust %>% left_join(clean %>% select(id, Type), by="id")
+
+tcl <- table(typ.clust$k5, typ.clust$Type)
+tcl
+chisq.test(tcl)
+
+```
+
+... and the clusters seem independent from type of respondent.
 
 ## Clusters vs. demographics
 
