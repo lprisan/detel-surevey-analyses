@@ -406,8 +406,8 @@ cleanclust %>%
 
 print(paste("Mean values per cluster"))
 cleanclust[,-1] %>% group_by(k5) %>% summarise_all(mean) %>% kable
-print(paste("St.Dev. per cluster"))
-cleanclust[,-1] %>% group_by(k5) %>% summarise_all(sd) %>% kable
+# print(paste("St.Dev. per cluster"))
+# cleanclust[,-1] %>% group_by(k5) %>% summarise_all(sd) %>% kable
 
 ```
 
@@ -756,6 +756,65 @@ sat.sprac %>% kable
 ```
 
 So it seems that experiencing certain practices is related to higher satisfaction (most of them, with ScientificWritingByExample, DataAnalysisbyExample, DiscussOverallPhD, SciCommIntegration, CriticalThinking, EmotionalSupport being the most dramatic differences), while others seem to make no difference (TeamSupervision, GrantWritingbyExample), and others lead to LOWER satisfaction (SingleSupervision).
+
+Barplots with errorbars...
+
+```{r}
+
+sat.sprac <- data.frame()
+for(sp in spractices){
+  sd <- supdata %>%
+    filter(Participant.type=="PhD.student" |
+                     Participant.type=="Doctor") %>%
+    select(Satisfaction.PhD,
+           ends_with(sp))
+  cols <- paste0("Exp.",sp)
+  tabsat <- sd %>%
+    group_by(across(all_of(cols))) %>%
+    summarise( 
+      n=n(),
+      mean=mean(Satisfaction.PhD),
+      sd=sd(Satisfaction.PhD)
+    ) %>%
+  mutate( se=sd/sqrt(n))  %>%
+  mutate( ic=se * qt((1-0.05)/2 + .5, n-1)) %>% 
+    ungroup
+  names(tabsat)[1] <- "Experienced"
+  tabsat$practice <- sp
+  if(nrow(sat.sprac)==0) sat.sprac <- tabsat
+  else sat.sprac <- rbind(sat.sprac, tabsat)
+}
+
+sat.sprac <- sat.sprac %>%
+  mutate(Experienced=as.factor(Experienced),
+         practice=as.factor(practice))
+
+# Mean-SD
+# ggbarplot(sat.sprac, x="practice", y="mean",
+#           fill="Experienced", position=position_dodge(0.8),
+#           x.text.angle = 60) + 
+#   geom_errorbar( aes(x=practice, ymin=mean-sd, ymax=mean+sd, col=Experienced), width=0.4, position=position_dodge(0.8))
+
+# Mean-SD
+ggbarplot(sat.sprac, x="practice", y="mean",
+          fill="Experienced", position=position_dodge(0.8),
+          x.text.angle = 60, title="Mean+SD of satisfaction by experienced practices") + 
+  geom_errorbar( aes(x=practice, ymin=mean-sd, ymax=mean+sd, col=Experienced), width=0.4, position=position_dodge(0.8))
+
+# Mean-SE
+ggbarplot(sat.sprac, x="practice", y="mean",
+          fill="Experienced", position=position_dodge(0.8),
+          x.text.angle = 60, title="Mean+SE of satisfaction by experienced practices") + 
+  geom_errorbar( aes(x=practice, ymin=mean-se, ymax=mean+se, col=Experienced), width=0.4, position=position_dodge(0.8))
+
+# Mean-SE
+ggbarplot(sat.sprac, x="practice", y="mean",
+          fill="Experienced", position=position_dodge(0.8),
+          x.text.angle = 60, title="Mean+CI of satisfaction by experienced practices") + 
+  geom_errorbar( aes(x=practice, ymin=mean-ic, ymax=mean+ic, col=Experienced), width=0.4, position=position_dodge(0.8))
+
+```
+
 
 
 Are there differences by whether people are doctors or not, in this satisfaction with PhD?
