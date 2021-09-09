@@ -1,0 +1,903 @@
+---
+title: "Challenges AND Supervision Analyses"
+author: "Luis P. Prieto"
+date: "23/4/2021"
+output: 
+  html_document:
+    self_contained: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, warning=F, message=F, error = F)
+
+library(tidyverse)
+library(ggpubr)
+library(readxl)
+library(reshape2)
+library(FactoMineR)
+library(factoextra)
+library(knitr)
+library(NbClust)
+library(psych)
+library(ppcor)
+library(graphicalVAR)
+library(mlVAR)
+library(qgraph)
+library(bootnet)
+library(MASS)
+library(jtools)
+select <- dplyr::select
+
+raw <- read_excel('./229_full_results - codes_revised with labels.xlsx', sheet=1)
+labs <- read_excel('./229_full_results - codes_revised with labels.xlsx', sheet=2)
+
+data <- raw %>% select(id, TG, starts_with("CHALLENGES"), GENDER, AGEGROUP,
+                       PHDSTAGE, PHDTOPIC, COUNTRY)
+
+data1 <- data %>% filter(TG==1) %>% select(id, TG, GENDER, AGEGROUP,
+                       PHDSTAGE, PHDTOPIC, COUNTRY,
+                       starts_with("CHALLENGESMASTER")) %>% 
+  rename_with(~ gsub("CHALLENGESMASTER_", "", .x, fixed = TRUE))
+
+data2 <- data %>% filter(TG==2) %>% select(id, TG, GENDER, AGEGROUP,
+                       PHDSTAGE, PHDTOPIC, COUNTRY,
+                       starts_with("CHALLENGESPHD")) %>% 
+  rename_with(~ gsub("CHALLENGESPHD_", "", .x, fixed = TRUE))
+
+data3 <- data %>% filter(TG==3) %>% select(id, TG, GENDER, AGEGROUP,
+                       PHDSTAGE, PHDTOPIC, COUNTRY,
+                       starts_with("CHALLENGESHOLD")) %>% 
+  rename_with(~ gsub("CHALLENGESHOLD_", "", .x, fixed = TRUE))
+
+data4 <- data %>% filter(TG==4) %>% select(id, TG, GENDER, AGEGROUP,
+                       PHDSTAGE, PHDTOPIC, COUNTRY,
+                       starts_with("CHALLENGESMASTER")) %>% 
+  rename_with(~ gsub("CHALLENGESMASTER_", "", .x, fixed = TRUE))
+
+clean <- data1 %>% rbind(data2) %>% rbind(data3) %>% rbind(data4)
+
+names(clean) <- c("id", "Type", "GENDER", "AGEGROUP", "PHDSTAGE",
+                  "PHDTOPIC", "COUNTRY",
+                  "Work.life.balance", "Project.management", "Financial",
+                  "Administrative", "Supervision", "Psychological", "Training",
+                  "Information.access","Technical","Professional.ethics")
+
+```
+
+## Descriptive graphs
+
+### Overall (low-difficult, high-easy)
+```{r}
+
+clean %>% select(id, Work.life.balance:Professional.ethics) %>% 
+  melt(id=c("id")) %>%
+  filter(!is.na(value)) %>%
+  # ggplot(aes(x=variable, y=value, fill=variable))+
+  # geom_violin(alpha=0.5)+
+  # theme_minimal()+theme(legend.position = "none")+
+  ggviolin(x="variable", y="value",
+         fill="variable",
+         palette = "jco",
+         add = c("mean_sd"), 
+         alpha = 0.5)+rotate_x_text(45)+theme(legend.position = "none")
+
+
+
+
+
+```
+
+### Per type of respondent
+
+```{r}
+
+clean %>% select(id, Type, Work.life.balance:Professional.ethics) %>% 
+  melt(id=c("id","Type")) %>%
+  mutate(Type=as.factor(Type)) %>%
+  filter(Type=="2" | Type==3) %>%
+  filter(!is.na(value)) %>%
+  # ggplot(aes(x=variable, y=value, fill=variable))+
+  # geom_violin(alpha=0.5)+
+  # theme_minimal()+theme(legend.position = "none")+
+  ggviolin(x="variable", y="value",
+         fill="variable",
+         palette = "jco",
+         facet.by = "Type",
+         add = c("mean_sd"), 
+         alpha = 0.5)+rotate_x_text(45)+theme(legend.position = "none")
+
+
+```
+
+... where Type=2 (PhD students), Type=3 (PhD holders)
+
+## Correlations between challenges
+
+```{r}
+
+clean %>% select(GENDER, AGEGROUP, Work.life.balance:Professional.ethics) %>%
+#%>% cor(use="na.or.complete") %>% corrplot(method = "number")
+pairs.panels(method = "spearman", # correlation method
+             hist.col = "#00AFBB",
+             density = TRUE,  # show density plots
+             stars = TRUE,
+             lm=T,
+             ellipses = F # show correlation ellipses
+             )
+
+```
+
+There's quite a few of these challenges correlated with each other. One of the strongest is Work.life.balance <--> Project.management <--> Psychological.
+
+To a lesser degree, Supervision <--> Information.access <--> Professional.ethics ... or Technical <--> Training <--> Information.access.
+
+Regarding demographics, there seems to be some correlation between AGEGROUP and Financial challenges (older respondents found Financial challenges more difficult).
+
+These correlations will play a role in the clusters defined below...
+
+
+### Alternative: PARTIAL correlations graph between challenges (and demographics?)
+
+Just the challenges...
+
+```{r}
+
+dpcor <- clean %>% select(Work.life.balance:Professional.ethics) %>%
+  rename(WL.Blnc=Work.life.balance,
+         Prj.mgmt=Project.management,
+         Fincl=Financial, Admin=Administrative,
+         Superv=Supervision, Psych=Psychological,
+         Train=Training, Info=Information.access,
+         Techn=Technical, Prof.Eth=Professional.ethics)
+
+#dpcor %>% na.omit %>% pcor(method="kendall")
+
+
+plot(estimateNetwork(dpcor %>% na.omit, 
+                     default = "pcor"),
+     layout="spring")
+
+plot(estimateNetwork(dpcor %>% na.omit, 
+                     default = "EBICglasso", tuning=0.2),
+     layout="spring")
+
+
+
+```
+
+... and with some demographics
+
+```{r}
+
+dpcor <- clean %>% select(GENDER, AGEGROUP, Work.life.balance:Professional.ethics) %>% 
+  mutate(GENDER=as.numeric(GENDER),
+         AGEGROUP=as.numeric(AGEGROUP)) %>%
+  rename(AGE=AGEGROUP, WL.Blnc=Work.life.balance,
+         Prj.mgmt=Project.management,
+         Fincl=Financial, Admin=Administrative,
+         Superv=Supervision, Psych=Psychological,
+         Train=Training, Info=Information.access,
+         Techn=Technical, Prof.Eth=Professional.ethics)
+
+dpcor %>% na.omit %>% pcor(method="kendall")
+
+
+plot(estimateNetwork(dpcor %>% na.omit, 
+                     default = "pcor"),
+     layout="spring")
+
+plot(estimateNetwork(dpcor %>% na.omit, 
+                     default = "EBICglasso", tuning=0.2),
+     layout="spring")
+
+
+
+```
+These give a similar picture to the correlations above, but might be nicer to look at? (gives an idea of clusters of challenges that appear together, like work-life balance-psych-project mgmt, or supervision-train-info-ethics-psych)
+
+
+## Dimensionality reduction (PCA) of Challenges
+
+
+
+```{r}
+
+pca.data <- clean %>% 
+  select(Work.life.balance:Professional.ethics) %>%
+  PCA(scale.unit = FALSE, graph = F)
+
+fviz_eig(pca.data, addlabels = TRUE, ylim = c(0, 70))
+
+fviz_pca_var(pca.data, col.var = "cos2",
+             gradient.cols = c("#FFCC00", "#CC9933", "#660033", "#330033"),
+             repel = TRUE) 
+```
+
+Seems like there is a big factor (find things challenging in general), then a second factor which seems to separate Psych/WLBalance/Projectmgmt/Financial vs the others?
+
+### Alternative: Multidimensional Scaling (MDS) of challenges
+
+See http://www.sthda.com/english/articles/31-principal-component-methods-in-r-practical-guide/122-multidimensional-scaling-essentials-algorithms-and-r-code/
+
+OPtion 1: making sense of the variables (MDS of correlations)
+
+```{r}
+
+dmds <- clean %>% 
+  select(Work.life.balance:Professional.ethics) %>%
+  na.omit
+
+res.cor <- cor(dmds, method = "kendall")
+mds.cor <- (1 - res.cor) %>%
+  cmdscale() %>%
+  as_tibble()
+colnames(mds.cor) <- c("Dim.1", "Dim.2")
+ggscatter(mds.cor, x = "Dim.1", y = "Dim.2", 
+          size = 1,
+          label = colnames(res.cor),
+          repel = TRUE)
+```
+Option 2: Making sense of participants (for later clustering)
+
+```{r}
+
+mds <- dmds %>%
+  dist() %>%          
+  cmdscale() %>%
+  as_tibble()
+colnames(mds) <- c("Dim.1", "Dim.2")
+# Plot MDS
+ggscatter(mds, x = "Dim.1", y = "Dim.2", 
+          label = rownames(mds),
+          size = 1,
+          repel = TRUE)
+
+# K-means clustering
+set.seed(1)
+clust <- kmeans(mds, 5)$cluster %>%
+  as.factor()
+dmds$clust <- clust
+mds <- mds %>%
+  mutate(groups = clust)
+# Plot and color by groups
+ggscatter(mds, x = "Dim.1", y = "Dim.2", 
+          label = rownames(mds),
+          color = "groups",
+          palette = "jco",
+          size = 1, 
+          ellipse = TRUE,
+          ellipse.type = "convex",
+          repel = TRUE)
+
+# Plotting the clusters
+options(digits = 2)  
+dmds %>% gather(variable, value, -clust) %>%
+  ggboxplot(x="clust", y="value", fill="variable")+
+  stat_summary(fun="mean")
+
+dmds %>% group_by(clust) %>% summarise_all(mean)
+
+```
+In this case, the clusters are:
+
+1. Everything is relatively easy (especially supervision and info access). Project management, Worklife balance and Psychological are still the most challenging comparatively (average)
+2. Average challenges. Project management and psychological are considered less challenging, professional ethics more challenging (followed by supervision)
+3. Everything is challenging. Psychological and worklife balance are especially challenging (followed by supervision). Information access and ethics are less challenging.
+4. Average challenges. Psychological and Worklife balance are more challenging. Information access is less challenging (followed by supervision).
+5. Average challenges, more differences across kinds of challenges: Worklife balance is most challenging, followed by Financial, Project management and Psychological. On the other hand, Info access, professional ethics and supervision are less challenging.
+
+## Cluster analysis (K-means)
+
+```{r}
+
+cleanclust <- clean %>% 
+  select(id, Work.life.balance:Professional.ethics) %>%
+  filter(complete.cases(.)) # TODO: try imputting instead of removing??
+
+```
+
+```{r, eval=F}
+
+# Elbow method
+fviz_nbclust(cleanclust[,-1], kmeans, method = "wss") +
+  geom_vline(xintercept = 2, linetype = 2)+
+  labs(subtitle = "Elbow method")
+# Silhouette method
+fviz_nbclust(cleanclust[,-1], kmeans, method = "silhouette")+
+  labs(subtitle = "Silhouette method")
+# Gap statistic
+# nboot = 50 to keep the function speedy. 
+# recommended value: nboot= 500 for your analysis.
+# Use verbose = FALSE to hide computing progression.
+set.seed(123)
+fviz_nbclust(cleanclust[,-1], kmeans, nstart = 25,  method = "gap_stat", nboot = 50)+
+  labs(subtitle = "Gap statistic method")
+
+```
+
+It seems that 2 clusters is the best solution... with 5 clusters a possible second.
+
+### k=2 clusters
+
+```{r, eval=F}
+
+set.seed(123)
+k2 <- kmeans(cleanclust[,-1], centers = 2)
+
+fviz_cluster(k2, geom = "point", data = cleanclust[,-1])
+
+cleanclust$k2 <- as.factor(k2$cluster)
+cleanclust %>%  
+  melt(id=c("id", "k2")) %>%
+  ggboxplot(x="variable", y="value",
+         fill="k2",
+         palette = "jco",
+         facet.by = "k2",
+         add = c("mean_sd"),
+         alpha = 0.5)+rotate_x_text(45)+theme(legend.position = "none")
+  # ggviolin(x="variable", y="value",
+  #        fill="variable",
+  #        palette = "jco",
+  #        facet.by = "k2",
+  #        add = c("mean_sd"), 
+  #        alpha = 0.5)+rotate_x_text(45)+theme(legend.position = "none")
+  # ggplot(aes(x=variable, y=value, fill=k2))+
+  # geom_boxplot(alpha=0.5)+
+  # rotate_x_text(45)+
+  # theme(legend.position = "none")+
+  # theme_minimal()
+
+
+```
+
+This clustering is a bit useless, as it just separates people that said things are generally challenging from not so challenging. Differential trends between the two clusters are the same (regarding what is more of a challenge).
+
+
+### k=5 clusters
+
+```{r}
+#cleanclust <- cleanclust %>% select(-k2)
+set.seed(123)
+k5 <- kmeans(cleanclust[,-1], centers = 5)
+
+fviz_cluster(k5, geom = "point", data = cleanclust)
+
+cleanclust$k5 <- as.factor(k5$cluster)
+cleanclust %>%  
+  melt(id=c("id","k5")) %>%
+  # ggboxplot(x="variable", y="value",
+  #        fill="k5",
+  #        palette = "jco",
+  #        facet.by = "k5",
+  #        add = c("mean_sd"),
+  #        alpha = 0.5)+rotate_x_text(45)+theme(legend.position = "none")
+  # ggviolin(x="variable", y="value",
+  #        fill="variable",
+  #        palette = "jco",
+  #        facet.by = "k5",
+  #        add = c("mean_sd"), 
+  #        alpha = 0.5)+rotate_x_text(45)+theme(legend.position = "none")
+  ggplot(aes(x=variable, y=value, fill=k5))+
+  geom_boxplot(alpha=0.5)+
+  rotate_x_text(45)+
+  theme(legend.position = "none")+
+  theme_minimal()
+
+print(paste("Mean values per cluster"))
+cleanclust[,-1] %>% group_by(k5) %>% summarise_all(mean) %>% kable
+print(paste("St.Dev. per cluster"))
+cleanclust[,-1] %>% group_by(k5) %>% summarise_all(sd) %>% kable
+
+```
+
+Initial cluster interpretation:
+
+1. Nothing's challenging
+2. Psychological, Work-life balance challenging
+3. Psychological, Work-life balance specially challenging - Supervision as well (almost everything is below average)
+4. Financial, work-life balance as challenging
+5. Technical, training as mildly challenging
+
+These could be related with some of the profiles of PhD students found in De Clercq, M., Frenay, M., Azzi, A., Klein, O., & Galand, B. (2021). All You Need is Self-Determination: Investigation of PhD Students’ Motivation Profiles and Their Impact on the Doctoral Completion Process. *International Journal of Doctoral Studies, 16*, 189-209.
+
+## Clusters vs. demographics
+
+
+```{r}
+
+cross <- cleanclust %>%  left_join((clean %>% select(id:COUNTRY)), by="id")
+
+
+# GENDER (removing non-binary, to be able to calculate chi-squares)
+crossgen <- cross %>% filter(GENDER!=4)
+t <- with(crossgen, table(k5, GENDER))
+t
+chisq.test(t)
+
+# AGEGROUP (removing non-binary, to be able to calculate chi-squares)
+crossage <- cross
+t <- with(crossage, table(k5, AGEGROUP))
+t
+chisq.test(t)
+
+# STAGE (removing non-phd-students)
+crosssta <- cross %>% filter(!is.na(PHDSTAGE))
+t <- with(crosssta, table(k5, PHDSTAGE))
+t
+chisq.test(t)
+
+# TOPIC (removing NAs)
+crosstop <- cross %>% filter(!is.na(PHDTOPIC))
+t <- with(crosstop, table(k5, PHDTOPIC))
+t
+chisq.test(t)
+
+# COUNTRY (removing NAs)
+crosscou <- cross %>% filter(!is.na(COUNTRY))
+t <- with(crosscou, table(k5, COUNTRY))
+t
+chisq.test(t)
+
+```
+
+There is no important correlation of the clusters with GENDER, AGEGROUP, PHDTOPIC
+
+There is some relation of clusters with PHDSTAGE (more mid-stage in cluster 2, more later-stage in cluster 4-5)
+
+There may also be some relation of clusters with COUNTRY, but data is too sparse to be reliable.
+
+
+## SUPERVISION Part
+
+
+### Parsing data
+
+```{r}
+# starting with raw data
+
+supdata <- raw %>% select(c(1,8,387:466))
+
+questnames <- names(supdata) # We store the real names/question text, just in case it's useful later
+
+# Do some cleanup and tidying
+shortnames <- c("ID","Participant.type",
+                    "Satisf.Master","Satisf.PhD.ongoing",
+                    "Satisf.PhD", "Satisf.Master.ongoing",
+                    "Exp.SingleSupervision","Exp.CoSupervision",
+                    "Exp.TeamSupervision","Exp.ResrchByExample",
+                    "Exp.GrantWritByExample",
+                    "Exp.EthicsWritByExample",
+                    "Exp.LitRevwByExample",
+                    "Exp.SciWritByExample",
+                    "Exp.DataAnalysByExample",
+                    "Exp.PrjMgmtByExample",
+                    "Exp.DoctoralWritGrp",
+                    "Exp.SupervContracts",
+                    "Exp.DiscussOverallPhD",
+                    "Exp.ExternalExperts",
+                    "Exp.SciCommIntegration",
+                    "Exp.CriticalThinking",
+                    "Exp.EmotionalSupport",
+                    "Exp.AutonomyIndependent",
+                    "Exp.MaterialSupport",
+                    "Usef.Mast.SingleSupervision","Usef.Mast.CoSupervision",
+                    "Usef.Mast.TeamSupervision","Usef.Mast.ResrchByExample",
+                    "Usef.Mast.GrantWritByExample",
+                    "Usef.Mast.EthicsWritByExample",
+                    "Usef.Mast.LitRevwByExample",
+                    "Usef.Mast.SciWritByExample",
+                    "Usef.Mast.DataAnalysByExample",
+                    "Usef.Mast.PrjMgmtByExample",
+                    "Usef.Mast.DoctoralWritGrp",
+                    "Usef.Mast.SupervContracts",
+                    "Usef.Mast.DiscussOverallPhD",
+                    "Usef.Mast.ExternalExperts",
+                    "Usef.Mast.SciCommIntegration",
+                    "Usef.Mast.CriticalThinking",
+                    "Usef.Mast.EmotionalSupport",
+                    "Usef.Mast.AutonomyIndependent",
+                    "Usef.Mast.MaterialSupport",
+                    "Usef.PhDong.SingleSupervision","Usef.PhDong.CoSupervision",
+                    "Usef.PhDong.TeamSupervision","Usef.PhDong.ResrchByExample",
+                    "Usef.PhDong.GrantWritByExample",
+                    "Usef.PhDong.EthicsWritByExample",
+                    "Usef.PhDong.LitRevwByExample",
+                    "Usef.PhDong.SciWritByExample",
+                    "Usef.PhDong.DataAnalysByExample",
+                    "Usef.PhDong.PrjMgmtByExample",
+                    "Usef.PhDong.DoctoralWritGrp",
+                    "Usef.PhDong.SupervContracts",
+                    "Usef.PhDong.DiscussOverallPhD",
+                    "Usef.PhDong.ExternalExperts",
+                    "Usef.PhDong.SciCommIntegration",
+                    "Usef.PhDong.CriticalThinking",
+                    "Usef.PhDong.EmotionalSupport",
+                    "Usef.PhDong.AutonomyIndependent",
+                    "Usef.PhDong.MaterialSupport",
+                    "Usef.PhD.SingleSupervision","Usef.PhD.CoSupervision",
+                    "Usef.PhD.TeamSupervision","Usef.PhD.ResrchByExample",
+                    "Usef.PhD.GrantWritByExample",
+                    "Usef.PhD.EthicsWritByExample",
+                    "Usef.PhD.LitRevwByExample",
+                    "Usef.PhD.SciWritByExample",
+                    "Usef.PhD.DataAnalysByExample",
+                    "Usef.PhD.PrjMgmtByExample",
+                    "Usef.PhD.DoctoralWritGrp",
+                    "Usef.PhD.SupervContracts",
+                    "Usef.PhD.DiscussOverallPhD",
+                    "Usef.PhD.ExternalExperts",
+                    "Usef.PhD.SciCommIntegration",
+                    "Usef.PhD.CriticalThinking",
+                    "Usef.PhD.EmotionalSupport",
+                    "Usef.PhD.AutonomyIndependent",
+                    "Usef.PhD.MaterialSupport"
+                    )
+names(supdata) <- shortnames
+
+supdata <- supdata %>%
+  mutate(Participant.type=as.factor(Participant.type))
+levels(supdata$Participant.type) <- c("Master", "PhD.student", "Doctor", "LowerThanMaster") 
+# if(is.logical(supdata$Satisf.Master.ongoing)){
+#   supdata$Satisf.Master.ongoing <- as.character(supdata$Satisf.Master.ongoing)
+# }
+
+supdata <- supdata %>% 
+  mutate_if(is.character, list(~na_if(.,""))) %>%
+  mutate(Satisfaction.Master = coalesce(Satisf.Master,Satisf.Master.ongoing),
+                              Satisfaction.PhD=coalesce(Satisf.PhD.ongoing,
+                    Satisf.PhD)) %>% select(-contains("Satisf.")) 
+# Not needed, it goes from 1-very dissatisfied to 5-very satisfied
+#%>%
+  # mutate(Satisfaction.PhD=as.numeric(recode(Satisfaction.PhD,
+  #                                `Very satisfied`="2",
+  #                                `Satisfied`="1",
+  #                                `Neither satisfied nor dissatisfied`="0",
+  #                                `Dissatisfied`="-1",
+  #                                `Very dissatisfied`="-2")),
+  #        Satisfaction.Master=as.numeric(recode(Satisfaction.Master,
+  #                                `Very satisfied`="2",
+  #                                `Satisfied`="1",
+  #                                `Neither satisfied nor dissatisfied`="0",
+  #                                `Dissatisfied`="-1",
+  #                                `Very dissatisfied`="-2")))
+
+spractices <- c("SingleSupervision","CoSupervision",
+                    "TeamSupervision","ResrchByExample",
+                    "GrantWritByExample",
+                    "EthicsWritByExample",
+                    "LitRevwByExample",
+                    "SciWritByExample",
+                    "DataAnalysByExample",
+                    "PrjMgmtByExample",
+                    "DoctoralWritGrp",
+                    "SupervContracts",
+                    "DiscussOverallPhD",
+                    "ExternalExperts",
+                    "SciCommIntegration",
+                    "CriticalThinking",
+                    "EmotionalSupport",
+                    "AutonomyIndependent",
+                    "MaterialSupport")
+
+cleansupdata <- supdata
+for(sp in spractices){
+  s <- cleansupdata %>% select(!starts_with("Exp.") & ends_with(sp))
+  s[,paste0("Useful.",sp)] <- coalesce(s %>% pull(1),s %>% pull(2),s %>% pull(3))
+  s <- s %>% select(starts_with("Useful."))
+  # Not needed, the export goes from 1 (extr. useless) to 5 (extr. useful)
+  # s[,1] <- as.numeric(recode(s %>% pull(1),
+  #                                `Extremely useful`="2",
+  #                                `Somewhat useful`="1",
+  #                                `Neither useful nor useless`="0",
+  #                                `Somewhat useless`="-1",
+  #                                `Extremely useless`="-2"))
+  cleansupdata <- cleansupdata %>% select(-(!starts_with("Exp.") & ends_with(sp))) %>%
+    cbind(s)
+}
+
+# Not needed, 0 and 1 are quite selfexplanatory
+# for(sp in spractices){
+#   cn <- paste0("Exp.",sp)
+#   cleansupdata[,cn] <- ifelse(cleansupdata[,cn]=="Yes",TRUE,FALSE)
+# }
+
+supdata <- cleansupdata
+```
+
+### Satisfaction with the PhD
+
+
+```{r}
+
+supdata %>% group_by(Participant.type) %>% summarise(satPhD=mean(Satisfaction.PhD))
+
+ggboxplot(supdata, x="Participant.type", y="Satisfaction.PhD")
+
+```
+
+... pretty similar distribution for doctors and PhD students.
+
+### Frequency of experience
+
+```{r}
+
+ss <- supdata %>% select(starts_with("Exp.")) %>% colSums(na.rm = T) %>% as.data.frame()
+ss[,2] <- rownames(ss)
+names(ss) <- c("Nr.appearances","Practice")
+ggbarplot(ss, x = "Practice", y = "Nr.appearances",
+          fill="steelblue",
+          palette = "jco",            # jco journal color palett. see ?ggpar
+          sort.val = "desc",          # Sort the value in dscending order
+          x.text.angle = 60           # Rotate vertically x axis texts
+          )
+
+```
+
+### Usefulness
+
+```{r}
+
+su <- supdata %>% select(starts_with("Useful.")) %>% 
+  gather
+# %>% 
+#   summarise_all(list(mean = mean, sd = sd), na.rm = TRUE)
+ggboxplot(su, x = "key", y = "value",
+          fill="key",
+          add="mean",
+          x.text.angle = 60           # Rotate vertically x axis texts
+          ) + 
+  ggplot2::theme(legend.position="none")
+
+```
+
+### Scatter of Usefulness vs. frequency
+
+```{r}
+
+
+su2 <- supdata %>% select(starts_with("Useful.")) %>% 
+  colMeans(na.rm = T) %>% as.data.frame()
+su2[,2] <- rownames(su2)
+names(su2) <- c("Avg.Usefulness","Practice")
+su2[,"Practice"] <- sub("Useful.","", su2[,"Practice"])
+
+ss[,"Practice"] <- sub("Exp.","", ss[,"Practice"])
+
+
+cross <- ss %>% full_join(su2, by="Practice")
+
+ggscatter(cross, x="Nr.appearances", y="Avg.Usefulness",
+          label = "Practice", repel = T)
+
+```
+
+So, we may want to emphasize the practice on the top-left (or those in the top, generally)... Team supervision, Research or writing or data analysis by example, emotional support.
+
+### PCA/MDS of usefulness
+
+TODO: are there things that are considered useful together?
+
+Maybe not that interesting
+
+### PCA/MDS of frequency
+
+TODO: are there things that appear/are experienced together?
+
+Maybe not that interesting
+
+### Distribution of satisfaction with supervision per experienced practice
+
+How satisfied with the PhD are people that have experienced/not experienced different practices?
+
+```{r}
+
+sat.sprac <- data.frame()
+for(sp in spractices){
+  sd <- supdata %>%
+    filter(Participant.type=="PhD.student" |
+                     Participant.type=="Doctor") %>%
+    select(Satisfaction.PhD,
+           ends_with(sp))
+  cols <- paste0("Exp.",sp)
+  tabsat <- sd %>%
+    group_by(across(all_of(cols))) %>%
+    summarise(meanSat=mean(Satisfaction.PhD)) %>% 
+    ungroup
+  names(tabsat)[1] <- "Experienced"
+  tabsat$practice <- sp
+  if(nrow(sat.sprac)==0) sat.sprac <- tabsat
+  else sat.sprac <- rbind(sat.sprac, tabsat)
+}
+
+sat.sprac <- sat.sprac %>%
+  mutate(Experienced=as.factor(Experienced),
+         practice=as.factor(practice))
+
+ggboxplot(sat.sprac, x="practice", y="meanSat",
+          fill="Experienced", color = "Experienced",
+          x.text.angle = 60)
+
+sat.sprac %>% kable
+```
+
+So it seems that experiencing certain practices is related to higher satisfaction (most of them, with ScientificWritingByExample, DataAnalysisbyExample, DiscussOverallPhD, SciCommIntegration, CriticalThinking, EmotionalSupport being the most dramatic differences), while others seem to make no difference (TeamSupervision, GrantWritingbyExample), and others lead to LOWER satisfaction (SingleSupervision).
+
+
+Are there differences by whether people are doctors or not, in this satisfaction with PhD?
+
+```{r}
+
+sat.sprac <- data.frame()
+for(sp in spractices){
+  sd <- supdata %>%
+    filter(Participant.type=="PhD.student" |
+                     Participant.type=="Doctor") %>%
+    select(Participant.type, Satisfaction.PhD,
+           ends_with(sp))
+  cols <- paste0("Exp.",sp)
+  tabsat <- sd %>%
+    group_by(Participant.type, across(all_of(cols))) %>%
+    summarise(meanSat=mean(Satisfaction.PhD)) %>% 
+    ungroup
+  names(tabsat)[2] <- "Experienced"
+  tabsat$practice <- sp
+  if(nrow(sat.sprac)==0) sat.sprac <- tabsat
+  else sat.sprac <- rbind(sat.sprac, tabsat)
+}
+
+sat.sprac <- sat.sprac %>%
+  mutate(Experienced=as.factor(Experienced),
+         practice=as.factor(practice))
+
+ggboxplot(sat.sprac, x="practice", y="meanSat",
+          fill="Experienced", # col="Participant.type",
+          add="mean",
+          x.text.angle = 60)
+
+sat.sprac %>% kable
+```
+
+Seems that the trends are similar, only that Doctors tend to be less satisfied on average...
+
+### Usefulness/satisfaction and demographics
+
+TODO: maybe not so interesting?
+
+### Partial correlation/GGM of challenges and supervision practice appearance/usefulness
+
+```{r}
+
+chalsup <- clean %>% rename(ID=id) %>%
+  full_join(supdata, by="ID") %>%
+  filter(Participant.type=="PhD.student" |
+                     Participant.type=="Doctor") %>%
+  select(ID, Participant.type, 
+         GENDER, AGEGROUP, COUNTRY,
+         Work.life.balance:Professional.ethics,
+         starts_with("Exp."),
+         Satisfaction.PhD:Useful.MaterialSupport) %>%
+  mutate(GENDER=as.numeric(GENDER),
+         AGEGROUP=as.numeric(AGEGROUP))
+
+```
+
+Relations between challenges and satisfaction with PhD and demographics
+
+```{r}
+
+# GGM of challenges and satisfaction and demographics
+dpcor <- chalsup %>% select(GENDER, AGEGROUP,
+                            Work.life.balance:Professional.ethics, 
+                            Satisfaction.PhD)
+plot(estimateNetwork(dpcor %>% na.omit, 
+                     default = "pcor"),
+     layout="spring")
+plot(estimateNetwork(dpcor %>% na.omit, 
+                     default = "EBICglasso", tuning=0.2),
+     layout="spring")
+```
+
+It seems that supervision challenges are most related to satisfaction, once we control by the other challenges.
+
+What about the relationship of experienced practices vs. satisfaction and supervision challenges?
+
+```{r}
+
+# GGM of challenges and satisfaction and demographics
+dpcor <- chalsup %>% select(GENDER, AGEGROUP,
+                            Supervision, 
+                            Satisfaction.PhD,
+                            starts_with("Exp."))
+
+names(dpcor) <- c("GENDER", "AGE", "SUP.CHLLG", "SATISF",
+                  "Single", "CoSup", "TmSup", "Resrch",
+                  "Grant","Ethics","LitRvw","SciWri",
+                  "Analys","PrjMgt","DWriGrp","Cntrct",
+                  "Ovrall","ExtExp","SciCom","CrtclT",
+                  "Emtnl","Autonm","Matrl")
+
+#dpcor %>% na.omit %>% pcor(method="kendall")
+plot(estimateNetwork(dpcor %>% na.omit, 
+                     default = "pcor"),
+     layout="spring")
+plot(estimateNetwork(dpcor %>% na.omit, 
+                     default = "EBICglasso", tuning=0),
+     layout="spring")
+
+```
+
+
+
+
+### Linear regression of supervision challenge or satisfaction with apperance or usefulness of practices
+
+Regression of satisfaction
+
+```{r}
+datalm <- dpcor %>% select(-SUP.CHLLG) %>% na.omit
+full.satlm <- lm(SATISF ~ ., 
+                 data=datalm)
+#summary(full.satlm) #Adj. R2: 0.03
+
+step.satlm <- stepAIC(full.satlm, direction = "both", 
+                      trace = FALSE)
+summary(step.satlm) # Adj.R2=0.09
+plot_summs(step.satlm)
+
+```
+
+Regression of finding supervision aspects (not) challenging (higher is)
+
+```{r}
+datalm <- dpcor %>% select(-SATISF) %>% na.omit
+full.chllm <- lm(SUP.CHLLG ~ ., 
+                 data=datalm)
+#summary(full.chllm) #Adj. R2: 0.06
+
+step.chllm <- stepAIC(full.chllm, direction = "both", 
+                      trace = FALSE)
+summary(step.chllm) # Adj.R2=0.11
+plot_summs(step.chllm)
+
+```
+
+
+We try both at the same time with GGM, using only the predictors that came up in the parsimonious models
+
+```{r}
+
+dataggm <- dpcor %>% select(SATISF, SUP.CHLLG,
+                            TmSup, SciWri, Cntrct, Matrl,
+                            CrtclT, Emtnl)
+
+# plot(estimateNetwork(dataggm, 
+#                      default = "pcor"),
+#      layout="spring")
+
+plot(estimateNetwork(dataggm, 
+                     default = "EBICglasso", tuning=0.2),
+     layout="spring")
+
+
+```
+
+Or, more simply, trying to get at connections between practices and satisfaction:
+
+```{r}
+
+dataggm <- dpcor %>% select(SATISF, 
+                            TmSup, SciWri, Cntrct, Matrl,
+                            CrtclT, Emtnl)
+
+# plot(estimateNetwork(dataggm, 
+#                      default = "pcor"),
+#      layout="spring")
+
+plot(estimateNetwork(dataggm, 
+                     default = "EBICglasso", tuning=0.2),
+     layout="spring")
+
+
+```
+
+We see support to critical thinking, scientific writing by example and emotional support as most directly related to satisfaction, with team supervision and material support more indirectly related to it. Scientific writing support seems the most central concept in the network.
